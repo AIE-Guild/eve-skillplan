@@ -154,96 +154,23 @@ class SkillTree:
         
         return skills
 
-                    
+    def skill_name(self, id):
+        return self.skills[id]['name']
+
+    def group_name(self, id):
+        return self.groups[id]['name']
+
 
 def pformat(elem):
     ustr = tostring(elem, 'utf-8')
     dom = xml.dom.minidom.parseString(ustr)
     return dom.toprettyxml(indent='  ')
 
-
-def parse_tree(filename=None):
-    tree = None
-    
-    if filename is not None:
-        tree = { 'group': {}, 'skill': {} }
-        doc = xml.dom.minidom.parse(filename)
-        for group_set in doc.getElementsByTagName('rowset'):
-            name = group_set.getAttribute('name')
-            if name == 'skillGroups':
-                for group_member in group_set.childNodes:
-                    if group_member.nodeType == Node.ELEMENT_NODE:
-                        # record group names
-                        group_name = group_member.getAttribute('groupName')
-                        group_id = group_member.getAttribute('groupID')
-                        tree['group'][group_id] = { 'name': group_name }
-
-                        # load skills
-                        for skill_set in group_member.getElementsByTagName('rowset'):
-                            name = skill_set.getAttribute('name')
-                            if name == 'skills':
-                                for skill_member in skill_set.childNodes:
-                                    if skill_member.nodeType == Node.ELEMENT_NODE:
-                                        skill_name = skill_member.getAttribute('typeName')  
-                                        skill_id = skill_member.getAttribute('typeID')  
-                                        skill_group = skill_member.getAttribute('groupID')
-                                        tree['skill'][skill_id] = { 'name': skill_name, 'group': skill_group, 'desc': None, 'rank': None, 'attr': None, 'req': [], 'bonus': [] }
-                                        for skill_elem in skill_member.childNodes:
-                                            name = skill_elem.nodeName
-                                            if name == 'description':
-                                                tree['skill'][skill_id]['desc'] = skill_elem.firstChild.data
-                                            elif name == 'rank':
-                                                tree['skill'][skill_id]['rank'] = int(skill_elem.firstChild.data)
-                                            elif name == 'requiredAttributes':
-                                                pri_attr = skill_elem.getElementsByTagName('primaryAttribute').item(0)
-                                                if pri_attr is not None:
-                                                    pri_attr = pri_attr.firstChild.data
-                                                sec_attr = skill_elem.getElementsByTagName('secondaryAttribute').item(0)
-                                                if sec_attr is not None:
-                                                    sec_attr = sec_attr.firstChild.data
-                                                tree['skill'][skill_id]['attr'] = (pri_attr, sec_attr)
-                                            elif name == 'rowset':
-                                                name = skill_elem.getAttribute('name')
-                                                if name == 'requiredSkills':
-                                                    for req_elem in skill_elem.getElementsByTagName('row'):
-                                                        req_id = req_elem.getAttribute('typeID')
-                                                        req_level = int(req_elem.getAttribute('skillLevel'))
-                                                        tree['skill'][skill_id]['req'].append((req_id, req_level))
-                                                elif name == 'skillBonusCollection':
-                                                    for bonus_elem in skill_elem.getElementsByTagName('row'):
-                                                        bonus_type = bonus_elem.getAttribute('bonusType')
-                                                        bonus_value = bonus_elem.getAttribute('bonusValue')
-                                                        tree['skill'][skill_id]['bonus'].append((bonus_type, bonus_value))
-                
-    return tree
-
-
-def extend_plan(skills, id, level, tree=None, noexpand=False):
-    # Sanity checkind
-    if skills is None or tree is None:
-        raise ValueError
-    
-    # Find prerequisites
-    for req in tree['skill'][id]['req']:
-        skills = extend_plan(skills, req[0], req[1], tree=tree, noexpand=noexpand)
-    
-    # Expand lower level versions of this skill, if necessary
-    if level > 1 and not noexpand:
-        skills = extend_plan(skills, id, level - 1, tree=tree, noexpand=noexpand)
-    
-    # Add this skill if it hasn't been added already
-    if not [x for x in skills if id == x['id'] and level <= x['level']]:
-        skills.append({'id': id, 'level': level})
-        
-    return skills
-
-
 def shopping_list(skills):
     s = set()
     for skill in skills:
         s.add(skill['id'])
     return list(s)
-
 
 def main():
 
@@ -258,7 +185,7 @@ def main():
     args = parser.parse_args()
     
     # Build the skill tree data
-    tree = parse_tree(args.tree)
+    skill_tree = SkillTree(args.tree)
 
     # Top-level variables
     plan_name = args.name
@@ -279,10 +206,9 @@ def main():
                         plan_name = node.firstChild.data
                 elif node.nodeName == 'skills':
                     for skill in node.getElementsByTagName('skill'):
-                        name = skill.getAttribute('name')
                         id = skill.getAttribute('typeID')
                         level = int(skill.getAttribute('level'))
-                        plan_skills = extend_plan(plan_skills, id, level, tree=tree, noexpand=args.compact)
+                        plan_skills = skill_tree.extend_plan(plan_skills, id, level, compact=args.compact)
                             
             break
         
@@ -298,7 +224,8 @@ def main():
         rom = [None, 'I', 'II', 'III', 'IV', 'V']
         
         for skill in plan_skills:
-            print('%d. %s %s' % (i, tree['skill'][skill['id']]['name'], rom[skill['level']]))
+            tier = rom[skill['level']]
+            print('%d. %s %s' % (i, skill_tree.skill_name(skill['id']), tier))
             i = i + 1
         
         print('')
@@ -315,7 +242,7 @@ def main():
         for skill in plan_skills:
             entry = SubElement(plan, 'entry')
             entry.set('skillID', skill['id'])
-            entry.set('skill', tree['skill'][skill['id']]['name'])
+            entry.set('skill', skill_tree.skill_name(skill['id']))
             entry.set('level', '%d' % skill['level'])
             entry.set('priority', '3')
             entry.set('type', 'Planned')
