@@ -40,6 +40,14 @@ import argparse
 import pprint
 import xml.dom.minidom
 from xml.dom.minidom import Node
+from xml.etree.ElementTree import Element, SubElement, Comment, tostring
+
+
+def pformat(elem):
+    str = tostring(elem, 'utf-8')
+    dom = xml.dom.minidom.parseString(str)
+    return dom.toprettyxml(indent='  ')
+
 
 def parse_tree(filename=None):
     tree = None
@@ -97,25 +105,111 @@ def parse_tree(filename=None):
     return tree
 
 
+def extend_plan(skills, id, level, tree=None, noexpand=False):
+    # Sanity checkind
+    if skills is None or tree is None:
+        raise ValueError
+    
+    # Find prerequisites
+    for req in tree['skill'][id]['req']:
+        skills = extend_plan(skills, req[0], req[1], tree=tree, noexpand=noexpand)
+    
+    # Expand lower level versions of this skill, if necessary
+    if level > 1 and not noexpand:
+        skills = extend_plan(skills, id, level - 1, tree=tree, noexpand=noexpand)
+    
+    # Add this skill if it hasn't been added already
+    if not [x for x in skills if id == x['id'] and level <= x['level']]:
+        skills.append({'id': id, 'level': level})
+        
+    return skills
+
+
+def shopping_list(skills):
+    s = set()
+    for skill in skills:
+        s.add(skill['id'])
+    return list(s)
+
+
 def main():
+
+    # Parse the command line
     parser = argparse.ArgumentParser(description='EVE Skillplan Converter')
     parser.add_argument('infiles', metavar='infile', nargs='+', help='input file')
     parser.add_argument('--tree', metavar='tree', nargs='?', help='CCP published skill tree')
-    
-    # Parse the command line
+    parser.add_argument('--text', action='store_true', help='print text summary')
+    parser.add_argument('--noexpand', action='store_true', help='do not expand skill levels')
+    parser.add_argument('--name', metavar='name', nargs='?', help='skillplan name')
+    parser.add_argument('--rev', nargs='?', default=0, help='skillplan revision')
     args = parser.parse_args()
     
     # Build the skill tree data
     tree = parse_tree(args.tree)
-    
-    for file in args.infiles:
-        doc = xml.dom.minidom.parse(file)
-    
-        for skill in doc.getElementsByTagName('skill'):
-            name = skill.getAttribute('name')
-            #pprint.pprint(name)
-    
 
+    # Top-level variables
+    plan_name = args.name
+    plan_revision = args.rev
+    plan_skills = []
+    plan_skills_seen = set()
+    
+    
+    for infile in args.infiles:
+        doc = xml.dom.minidom.parse(infile)
+    
+        root = doc.getElementsByTagName('SerializableCCPCharacter')
+        if root:
+            # After Plan Character
+            for node in root.item(0).childNodes:
+                if node.nodeName == 'name':
+                    if plan_name is None:
+                        plan_name = node.firstChild.data
+                elif node.nodeName == 'skills':
+                    for skill in node.getElementsByTagName('skill'):
+                        name = skill.getAttribute('name')
+                        id = skill.getAttribute('typeID')
+                        level = int(skill.getAttribute('level'))
+                        plan_skills = extend_plan(plan_skills, id, level, tree=tree, noexpand=args.noexpand)
+                            
+            break
+        
+        root = doc.getElementsByTagName('plan')
+        if root:
+            # Skill Plan
+            break
+    
+    if args.text:
+        # Build text
+        print('Skill plan for %s\n' % plan_name)
+        i = 1
+        rom = [None, 'I', 'II', 'III', 'IV', 'V']
+        
+        for skill in plan_skills:
+            print('%d. %s %s' % (i, tree['skill'][skill['id']]['name'], rom[skill['level']]))
+            i = i + 1
+        
+        print('')
+        print('%d unique skill(s), %d skill level(s)' % (len(shopping_list(plan_skills)), len(plan_skills)))   
+        
+    else:
+        # Build XML
+        plan = Element('plan')
+        if plan_name is not None:
+            plan.set('name', plan_name)
+            if plan_revision is not None:
+                plan.set('revision', '%d' % plan_revision)
+        
+        for skill in plan_skills:
+            entry = SubElement(plan, 'entry')
+            entry.set('skillID', skill['id'])
+            entry.set('skill', tree['skill'][skill['id']]['name'])
+            entry.set('level', '%d' % skill['level'])
+            entry.set('priority', '3')
+            entry.set('type', 'Planned')
+            notes = SubElement(entry, 'notes')
+            notes.text = plan_name
+
+            print(pformat(plan))
 
 if __name__ == "__main__":
     main()
