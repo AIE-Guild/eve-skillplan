@@ -43,9 +43,122 @@ from xml.dom.minidom import Node
 from xml.etree.ElementTree import Element, SubElement, Comment, tostring
 
 
+class SkillTree:
+    """OO interface to the CCP skilltree."""
+    skills = None
+    groups = None
+    
+    def __init__(self, filename):
+        if filename is not None:
+            
+            # Parse the XML
+            doc = xml.dom.minidom.parse(filename)
+            
+            # Read group information at the top of the tree
+            for group_set in doc.getElementsByTagName('rowset'):
+                name = group_set.getAttribute('name')
+                
+                if name == 'skillGroups':
+                
+                    for group_member in group_set.childNodes:
+                    
+                        if group_member.nodeType == Node.ELEMENT_NODE:
+                            # record group names
+                            group_name = group_member.getAttribute('groupName')
+                            group_id = group_member.getAttribute('groupID')
+                            
+                            if self.groups is None:
+                                # Initialize the group data store.
+                                self.groups = {}
+                                
+                            self.groups[group_id] = { 'name': group_name }
+
+                            # Read skill data from deeper in the tree
+                            for skill_set in group_member.getElementsByTagName('rowset'):
+                                name = skill_set.getAttribute('name')
+                                
+                                if name == 'skills':
+                                
+                                    for skill_member in skill_set.childNodes:
+                                    
+                                        if skill_member.nodeType == Node.ELEMENT_NODE:
+                                            skill_name = skill_member.getAttribute('typeName')  
+                                            skill_id = skill_member.getAttribute('typeID')  
+                                            skill_group = skill_member.getAttribute('groupID')
+                                            
+                                            if self.skills is None:
+                                                # Initialize the skill data store.
+                                                self.skills = {}
+                                                
+                                            self.skills[skill_id] = {'name': skill_name,
+                                                                     'group': skill_group,
+                                                                     'desc': None,
+                                                                     'rank': None,
+                                                                     'attr': None,
+                                                                     'req': [],
+                                                                     'bonus': [] }
+                                        
+                                            for skill_elem in skill_member.childNodes:
+                                                name = skill_elem.nodeName
+                                                
+                                                if name == 'description':
+                                                    self.skills[skill_id]['desc'] = skill_elem.firstChild.data
+                                                
+                                                elif name == 'rank':
+                                                    self.skills[skill_id]['rank'] = int(skill_elem.firstChild.data)
+                                                
+                                                elif name == 'requiredAttributes':
+                                                    pri_attr = skill_elem.getElementsByTagName('primaryAttribute').item(0)
+                                                    if pri_attr is not None:
+                                                        pri_attr = pri_attr.firstChild.data
+                                                
+                                                    sec_attr = skill_elem.getElementsByTagName('secondaryAttribute').item(0)
+                                                    if sec_attr is not None:
+                                                        sec_attr = sec_attr.firstChild.data
+                                                    
+                                                    self.skills[skill_id]['attr'] = (pri_attr, sec_attr)
+                                                    
+                                                elif name == 'rowset':
+                                                    name = skill_elem.getAttribute('name')
+                                                    
+                                                    if name == 'requiredSkills':
+                                                        for req_elem in skill_elem.getElementsByTagName('row'):
+                                                            req_id = req_elem.getAttribute('typeID')
+                                                            req_level = int(req_elem.getAttribute('skillLevel'))
+                                                            
+                                                            self.skills[skill_id]['req'].append((req_id, req_level))
+                                                    
+                                                    elif name == 'skillBonusCollection':
+                                                        for bonus_elem in skill_elem.getElementsByTagName('row'):
+                                                            bonus_type = bonus_elem.getAttribute('bonusType')
+                                                            bonus_value = bonus_elem.getAttribute('bonusValue')
+                                                            
+                                                            self.skills[skill_id]['bonus'].append((bonus_type, bonus_value))
+
+    def extend_plan(self, skills, id, level, compact=False):
+        # Sanity checkind
+        if skills is None:
+            raise ValueError
+    
+        # Find prerequisites
+        for req in self.skills[id]['req']:
+            skills = self.extend_plan(skills, req[0], req[1], compact=compact)
+    
+        # Expand lower level versions of this skill, if necessary
+        if level > 1 and not compact:
+            skills = self.extend_plan(skills, id, level - 1, compact=compact)
+    
+        # Add this skill if it hasn't been added already
+        if not [x for x in skills if id == x['id'] and level <= x['level']]:
+            skills.append({'id': id, 'level': level})
+        
+        return skills
+
+                    
+
 def pformat(elem):
-    str = tostring(elem, 'utf-8')
-    dom = xml.dom.minidom.parseString(str)
+    ustr = tostring(elem, 'utf-8')
+    dom = xml.dom.minidom.parseString(ustr)
     return dom.toprettyxml(indent='  ')
 
 
@@ -139,7 +252,7 @@ def main():
     parser.add_argument('infiles', metavar='infile', nargs='+', help='input file')
     parser.add_argument('--tree', metavar='tree', nargs='?', help='CCP published skill tree')
     parser.add_argument('--text', action='store_true', help='print text summary')
-    parser.add_argument('--noexpand', action='store_true', help='do not expand skill levels')
+    parser.add_argument('--compact', action='store_true', help='do not expand skill levels')
     parser.add_argument('--name', metavar='name', nargs='?', help='skillplan name')
     parser.add_argument('--rev', nargs='?', default=0, help='skillplan revision')
     args = parser.parse_args()
@@ -169,7 +282,7 @@ def main():
                         name = skill.getAttribute('name')
                         id = skill.getAttribute('typeID')
                         level = int(skill.getAttribute('level'))
-                        plan_skills = extend_plan(plan_skills, id, level, tree=tree, noexpand=args.noexpand)
+                        plan_skills = extend_plan(plan_skills, id, level, tree=tree, noexpand=args.compact)
                             
             break
         
