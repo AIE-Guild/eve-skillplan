@@ -35,9 +35,10 @@
 #   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 ###########################################################################################################
+__version__ = '0.1.0'
+###########################################################################################################
 
 import argparse
-import pprint
 import xml.dom.minidom
 from xml.dom.minidom import Node
 from xml.etree.ElementTree import Element, SubElement, Comment, tostring
@@ -45,9 +46,31 @@ from xml.etree.ElementTree import Element, SubElement, Comment, tostring
 
 class SkillTree:
     """OO interface to the CCP skilltree."""
+    _base = {'all': [ ('3426', 3),
+                      ('3413', 3),
+                      ('3416', 2),
+                      ('3300', 2),
+                      ('3386', 2),
+                      ('3392', 2),
+                      ('3449', 3),
+                      ('3402', 3),
+                      ('3327', 3) ],
+            'amarr': [ ('3303', 3),
+                       ('3331', 2) ],
+            'caldari': [ ('3301', 3),
+                         ('3330', 2) ],
+            'gallente': [ ('3301', 3),
+                          ('3328', 2) ],
+            'minmatar': [ ('3302', 3),
+                          ('3329', 2) ]}
     skills = None
     groups = None
-    
+    attributes = {'intelligence': 20,
+                  'perception': 20,
+                  'charisma': 19,
+                  'willpower': 20,
+                  'memory': 20}
+
     def __init__(self, filename):
         if filename is not None:
             
@@ -182,16 +205,20 @@ def main():
     parser.add_argument('--compact', action='store_true', help='do not expand skill levels')
     parser.add_argument('--name', metavar='name', nargs='?', help='skillplan name')
     parser.add_argument('--rev', nargs='?', default=0, help='skillplan revision')
+    parser.add_argument('--race', metavar='race', nargs=1, help='character race')
+    parser.add_argument('--nullinit', action='store_true', help='do not include starting skills')
     args = parser.parse_args()
     
     # Build the skill tree data
     skill_tree = SkillTree(args.tree)
 
+
+    
     # Top-level variables
     plan_name = args.name
     plan_revision = args.rev
     plan_skills = []
-    plan_skills_seen = set()
+
     
     
     for infile in args.infiles:
