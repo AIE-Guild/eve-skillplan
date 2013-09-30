@@ -258,14 +258,15 @@ def main():
 
     # Parse the command line
     parser = argparse.ArgumentParser(description='EVE Skillplan Converter')
-    parser.add_argument('infiles', type=file, metavar='INFILE', nargs='+', help='input file')
-    parser.add_argument('--tree', type=file, nargs=1, help='CCP published skill tree')
+    parser.add_argument('infiles', type=file, metavar='INFILE', nargs='+', action='store', help='input file')
+    parser.add_argument('--tree', type=file, nargs=1, action='store', help='CCP published skill tree')
     parser.add_argument('--text', action='store_true', help='print text summary')
     parser.add_argument('--compact', action='store_true', help='do not expand skill levels')
-    parser.add_argument('--name', nargs=1, help='skillplan name')
-    parser.add_argument('--rev', nargs=1, default=0, help='skillplan revision')
-    parser.add_argument('--race', nargs=1, help='character race')
+    parser.add_argument('--name', nargs=1, action='store', help='skillplan name')
+    parser.add_argument('--rev', type=int, nargs=1, action='store', default=0, help='skillplan revision')
+    parser.add_argument('--race', nargs=1, action='store', help='character race', choices=['amarr', 'caldari', 'gallente', 'minmatar'])
     parser.add_argument('--baseline', action='store_true', help='do not include starting skills')
+    parser.add_argument('--priority', type=int, nargs=1, action='store', default=3, help='default priority', choices=[1, 2, 3, 4, 5])
     args = parser.parse_args()
     
     # Build the skill tree data
@@ -277,7 +278,7 @@ def main():
     plan_name = args.name
     plan_revision = args.rev
     plan_skills = []
-
+    plan_priority = {}
     
     
     for infile in args.infiles:
@@ -310,8 +311,17 @@ def main():
                 if node.nodeName == 'entry':
                     sid = node.getAttribute('skillID')
                     level = int(node.getAttribute('level'))
-                    #priority = node.getAttribute('priority')
-                    plan_skills = skill_tree.extend_plan(plan_skills, (sid, level), compact=args.compact, race=args.race, baseline=args.baseline)
+                    skill = (sid, level)
+                    
+                    # Record the lowest priority value
+                    priority = int(node.getAttribute('priority'))
+                    try:
+                        if plan_priority[skill] > priority:
+                            plan_priority[skill] = priority
+                    except:
+                        plan_priority[skill] = priority
+                        
+                    plan_skills = skill_tree.extend_plan(plan_skills, skill, compact=args.compact, race=args.race, baseline=args.baseline)
                 
             break
     
@@ -355,8 +365,14 @@ def main():
             entry.set('skillID', skill[0])
             entry.set('skill', skill_tree.skill_name(skill[0]))
             entry.set('level', '%d' % skill[1])
-            entry.set('priority', '3')
             entry.set('type', 'Planned')
+
+            try:
+                priority = plan_priority[skill]
+            except:
+                priority = args.priority
+            entry.set('priority', '%d' % priority)
+
             notes = SubElement(entry, 'notes')
             notes.text = plan_name
 
