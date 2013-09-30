@@ -350,7 +350,12 @@ def main():
             level_str = '%d skill levels' % len(plan_skills)
             
         print('')
-        print('%s, %s; Total time: %s' % (unique_str, level_str, format_time(plan_time)))   
+        print('%s, %s; Total time: %s' % (unique_str, level_str, format_time(plan_time))) 
+        print('')
+        print('Shopping List:')
+        for sname in sorted(map(lambda x: skill_tree.skill_name(x), skill_list)):
+            print('  %s' % sname)
+        print('')
         
     else:
         # Build XML
