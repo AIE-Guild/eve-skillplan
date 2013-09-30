@@ -41,7 +41,7 @@ __version__ = '0.1.0'
 import argparse
 import xml.dom.minidom
 from xml.dom.minidom import Node
-from xml.etree.ElementTree import Element, SubElement, Comment, tostring
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 
 class SkillTree:
@@ -158,30 +158,30 @@ class SkillTree:
                                                             
                                                             self.skills[skill_id]['bonus'].append((bonus_type, bonus_value))
 
-    def extend_plan(self, skills, id, level, compact=False):
-        # Sanity checkind
-        if skills is None:
+    def extend_plan(self, plan, skill, compact=False):
+        # Sanity checking
+        if plan is None:
             raise ValueError
     
         # Find prerequisites
-        for req in self.skills[id]['req']:
-            skills = self.extend_plan(skills, req[0], req[1], compact=compact)
+        for req in self.skills[skill[0]]['req']:
+            plan = self.extend_plan(plan, req, compact=compact)
     
         # Expand lower level versions of this skill, if necessary
-        if level > 1 and not compact:
-            skills = self.extend_plan(skills, id, level - 1, compact=compact)
+        if skill[1] > 1 and not compact:
+            plan = self.extend_plan(plan, (skill[0], skill[1] - 1), compact=compact)
     
         # Add this skill if it hasn't been added already
-        if not [x for x in skills if id == x['id'] and level <= x['level']]:
-            skills.append({'id': id, 'level': level})
+        if not [x for x in plan if skill[0] == x[0] and skill[1] <= x[1]]:
+            plan.append(skill)
         
-        return skills
+        return plan
 
-    def skill_name(self, id):
-        return self.skills[id]['name']
+    def skill_name(self, sid):
+        return self.skills[sid]['name']
 
-    def group_name(self, id):
-        return self.groups[id]['name']
+    def group_name(self, sid):
+        return self.groups[sid]['name']
 
 
 def pformat(elem):
@@ -192,7 +192,7 @@ def pformat(elem):
 def shopping_list(skills):
     s = set()
     for skill in skills:
-        s.add(skill['id'])
+        s.add(skill[0])
     return list(s)
 
 def main():
@@ -233,9 +233,9 @@ def main():
                         plan_name = node.firstChild.data
                 elif node.nodeName == 'skills':
                     for skill in node.getElementsByTagName('skill'):
-                        id = skill.getAttribute('typeID')
+                        sid = skill.getAttribute('typeID')
                         level = int(skill.getAttribute('level'))
-                        plan_skills = skill_tree.extend_plan(plan_skills, id, level, compact=args.compact)
+                        plan_skills = skill_tree.extend_plan(plan_skills, (sid, level), compact=args.compact)
                             
             break
         
@@ -251,8 +251,7 @@ def main():
         rom = [None, 'I', 'II', 'III', 'IV', 'V']
         
         for skill in plan_skills:
-            tier = rom[skill['level']]
-            print('%d. %s %s' % (i, skill_tree.skill_name(skill['id']), tier))
+            print('%d. %s %s' % (i, skill_tree.skill_name(skill[0]), rom[skill[1]]))
             i = i + 1
         
         print('')
@@ -268,9 +267,9 @@ def main():
         
         for skill in plan_skills:
             entry = SubElement(plan, 'entry')
-            entry.set('skillID', skill['id'])
-            entry.set('skill', skill_tree.skill_name(skill['id']))
-            entry.set('level', '%d' % skill['level'])
+            entry.set('skillID', skill[0])
+            entry.set('skill', skill_tree.skill_name(skill[0]))
+            entry.set('level', '%d' % skill[1])
             entry.set('priority', '3')
             entry.set('type', 'Planned')
             notes = SubElement(entry, 'notes')
