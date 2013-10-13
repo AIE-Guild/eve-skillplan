@@ -35,14 +35,15 @@
 #   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 ###########################################################################################################
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 ###########################################################################################################
 
 import argparse
 import xml.dom.minidom
 import math
+from datetime import datetime
 from xml.dom.minidom import Node
-from xml.etree.ElementTree import Element, SubElement, tostring
+from xml.etree.ElementTree import Element, SubElement, Comment, tostring
 
 
 class SkillTree:
@@ -159,7 +160,7 @@ class SkillTree:
                                                             
                                                             self.skills[skill_id]['bonus'].append((bonus_type, bonus_value))
 
-    def extend_plan(self, plan, skill, compact=False, race=None, baseline=True):
+    def extend_plan(self, plan, skill, expand=False, race=None, nobaseline=True):
         
         def excluded(skill, punch_list):
             if [x for x in punch_list if skill[0] == x[0] and skill[1] <= x[1]]:
@@ -173,19 +174,19 @@ class SkillTree:
     
         # Find prerequisites
         for req in self.skills[skill[0]]['req']:
-            plan = self.extend_plan(plan, req, compact=compact, race=race, baseline=baseline)
+            plan = self.extend_plan(plan, req, expand=expand, race=race, nobaseline=nobaseline)
     
         # Expand lower level versions of this skill, if necessary
-        if skill[1] > 1 and not compact:
-            plan = self.extend_plan(plan, (skill[0], skill[1] - 1), compact=compact, race=race, baseline=baseline)
+        if skill[1] > 1 and expand:
+            plan = self.extend_plan(plan, (skill[0], skill[1] - 1), expand=expand, race=race, nobaseline=nobaseline)
 
         # Build the baseline
-        if baseline:
+        if nobaseline:
+            base = []
+        else:
             base = self._baseline['all']
             if race is not None:
                 base = base + self._baseline[race]
-        else:
-            base = []
     
         # Add this skill if it hasn't been added already
         if not excluded(skill, plan):
@@ -203,6 +204,18 @@ class SkillTree:
         (primary, secondary) = self.skills[sid]['attr']
         t = int((base / (self.attributes[primary] + (self.attributes[secondary] / 2))) * 60)
         return t
+
+    def shopping_list(self, skills, race=None):
+        s = set()
+        base = self._baseline['all']
+        if race is not None:
+            base = base + self._baseline[race]
+
+        for skill in skills:
+            if skill[0] not in (lambda x: x[0])(base):
+                s.add(skill[0])
+                
+        return list(s)
     
     def skill_name(self, sid):
         return self.skills[sid]['name']
@@ -247,36 +260,31 @@ def format_time(s):
         elem.append('%d seconds' % s)
     
     return ', '.join(elem)
-        
-def shopping_list(skills):
-    s = set()
-    for skill in skills:
-        s.add(skill[0])
-    return list(s)
+
 
 def main():
 
     # Parse the command line
     parser = argparse.ArgumentParser(description='EVE Skillplan Converter')
     parser.add_argument('infiles', type=file, metavar='INFILE', nargs='+', action='store', help='input file')
-    parser.add_argument('--tree', type=file, nargs=1, action='store', help='CCP published skill tree')
+    parser.add_argument('--tree', type=file, action='store', help='CCP published skill tree')
     parser.add_argument('--text', action='store_true', help='print text summary')
-    parser.add_argument('--compact', action='store_true', help='do not expand skill levels')
-    parser.add_argument('--name', nargs=1, action='store', help='skillplan name')
-    parser.add_argument('--rev', type=int, nargs=1, action='store', default=0, help='skillplan revision')
-    parser.add_argument('--race', nargs=1, action='store', help='character race', choices=['amarr', 'caldari', 'gallente', 'minmatar'])
-    parser.add_argument('--baseline', action='store_true', help='do not include starting skills')
-    parser.add_argument('--priority', type=int, nargs=1, action='store', default=3, help='default priority', choices=[1, 2, 3, 4, 5])
+    parser.add_argument('--name', action='store', help='skillplan name')
+    parser.add_argument('--comment', action='store', help='skillplan comment')
+    parser.add_argument('--race', action='store', help='character race', choices=['amarr', 'caldari', 'gallente', 'minmatar'])
+    parser.add_argument('--expand', action='store_true', help='expand skill levels')
+    parser.add_argument('--nobaseline', action='store_true', help='include skills avaialble on new characters')
+    parser.add_argument('--priority', type=int, action='store', default=3, help='default priority', choices=[1, 2, 3, 4, 5])
     args = parser.parse_args()
     
     # Build the skill tree data
-    skill_tree = SkillTree(args.tree[0])
+    skill_tree = SkillTree(args.tree)
 
 
     
     # Top-level variables
     plan_name = args.name
-    plan_revision = args.rev
+    plan_revision = '4116'
     plan_skills = []
     plan_priority = {}
     
@@ -295,7 +303,7 @@ def main():
                     for skill in node.getElementsByTagName('skill'):
                         sid = skill.getAttribute('typeID')
                         level = int(skill.getAttribute('level'))
-                        plan_skills = skill_tree.extend_plan(plan_skills, (sid, level), compact=args.compact, race=args.race, baseline=args.baseline)
+                        plan_skills = skill_tree.extend_plan(plan_skills, (sid, level), expand=args.expand, race=args.race, nobaseline=args.nobaseline)
                             
             break
         
@@ -304,8 +312,6 @@ def main():
             # Skill Plan
             if plan_name is None:
                 plan_name = root.getAttribute('name')
-            if plan_revision is None:
-                plan_revision = root.getAttribute('revision')
                 
             for node in root.childNodes:
                 if node.nodeName == 'entry':
@@ -321,7 +327,7 @@ def main():
                     except:
                         plan_priority[skill] = priority
                         
-                    plan_skills = skill_tree.extend_plan(plan_skills, skill, compact=args.compact, race=args.race, baseline=args.baseline)
+                    plan_skills = skill_tree.extend_plan(plan_skills, skill, expand=args.expand, race=args.race, nobaseline=args.nobaseline)
                 
             break
     
@@ -338,7 +344,7 @@ def main():
             print('%d. %s %s (%s)' % (i, skill_tree.skill_name(skill[0]), rom[skill[1]], format_time(skill_time)))
             i = i + 1
         
-        skill_list = shopping_list(plan_skills)
+        skill_list = skill_tree.shopping_list(plan_skills, race=args.race)
         if len(skill_list) == 1:
             unique_str = '1 unique skill'
         else:
@@ -362,9 +368,14 @@ def main():
         plan = Element('plan')
         if plan_name is not None:
             plan.set('name', plan_name)
-            if plan_revision is not None:
-                plan.set('revision', '%d' % plan_revision)
-        
+            plan.set('revision', plan_revision)
+            
+        if args.comment is None:
+            comment = Comment(' %s ' % datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
+        else:
+            comment = Comment(' %s ' % args.comment)
+        plan.append(comment)
+                  
         for skill in plan_skills:
             entry = SubElement(plan, 'entry')
             entry.set('skillID', skill[0])
